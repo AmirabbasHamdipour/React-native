@@ -1,49 +1,46 @@
-name: Bootstrap React Native Android
+name: Android Build
 
 on:
   workflow_dispatch:
 
 jobs:
-  init-and-build:
+  build:
     runs-on: ubuntu-latest
     permissions:
       contents: write
+
+    env:
+      NODE_OPTIONS: --max_old_space_size=4096
 
     steps:
       - uses: actions/checkout@v4
 
       - uses: actions/setup-node@v4
         with:
-          node-version: 18
+          node-version: 18.19.0
 
       - uses: actions/setup-java@v4
         with:
           distribution: temurin
           java-version: 17
 
-      - name: Init React Native (NEW WAY)
-        run: |
-          npx @react-native-community/cli init MyApp
-          mv MyApp/* .
-          mv MyApp/.* . || true
-          rm -rf MyApp
+      - run: npm install --legacy-peer-deps
 
-      - name: Install dependencies
-        run: npm install --legacy-peer-deps
-
-      - name: Commit generated project
+      - name: Bundle JS manually
         run: |
-          git config user.name "github-actions"
-          git config user.email "actions@github.com"
-          git add .
-          git commit -m "bootstrap react native project"
-          git push
+          mkdir -p android/app/src/main/assets
+          npx react-native bundle \
+            --platform android \
+            --dev false \
+            --entry-file index.js \
+            --bundle-output android/app/src/main/assets/index.android.bundle \
+            --assets-dest android/app/src/main/res
 
       - name: Build APK
         run: |
           cd android
           chmod +x gradlew
-          ./gradlew assembleRelease
+          ./gradlew assembleRelease -x bundleReleaseJsAndAssets
 
       - uses: actions/upload-artifact@v4
         with:
