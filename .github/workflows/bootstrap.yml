@@ -21,15 +21,15 @@ jobs:
           distribution: temurin
           java-version: 17
 
-      - name: Init React Native
+      - name: Init React Native (NEW WAY)
         run: |
-          npx react-native init MyApp
+          npx @react-native-community/cli init MyApp
           mv MyApp/* .
           mv MyApp/.* . || true
           rm -rf MyApp
 
-      - name: Install deps
-        run: npm install
+      - name: Install dependencies
+        run: npm install --legacy-peer-deps
 
       - name: Commit generated project
         run: |
