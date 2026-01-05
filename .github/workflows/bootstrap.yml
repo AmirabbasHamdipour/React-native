@@ -11,42 +11,37 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-    # 1) Checkout repo
+    # 1) Checkout project
     - name: Checkout repository
       uses: actions/checkout@v4
 
     # 2) Setup Node.js
-    - name: Setup Node.js
+    - name: Setup Node
       uses: actions/setup-node@v4
       with:
         node-version: '20'
 
-    # 3) Install JS dependencies
-    - name: Install npm dependencies
+    # 3) Install dependencies
+    - name: Install JS deps
       run: npm install
 
-    # 4) Create assets folder for bundle (if not exists)
-    - name: Create Android assets folder
+    # 4) Make sure Android assets folder exists
+    - name: Make assets dir
       run: mkdir -p android/app/src/main/assets
 
-    # 5) Bundle JS for Release
+    # 5) Bundle React Native JS
     - name: Bundle JS
-      run: npx react-native bundle \
-        --platform android \
-        --dev false \
-        --entry-file index.js \
-        --bundle-output android/app/src/main/assets/index.android.bundle \
-        --assets-dest android/app/src/main/res/
+      run: npx react-native bundle --platform android --dev false --entry-file index.js --bundle-output android/app/src/main/assets/index.android.bundle --assets-dest android/app/src/main/res/
 
     # 6) Make gradlew executable
-    - name: Make gradlew executable
+    - name: chmod gradlew
       run: chmod +x android/gradlew
 
-    # 7) Setup JDK 17
-    - name: Set up JDK 17
+    # 7) Setup JDK
+    - name: Setup JDK 17
       uses: actions/setup-java@v3
       with:
-        distribution: 'temurin'
+        distribution: temurin
         java-version: '17'
 
     # 8) Cache Gradle
@@ -61,12 +56,12 @@ jobs:
           gradle-
 
     # 9) Build Release APK
-    - name: Build Release APK
+    - name: Build Release
       working-directory: android
       run: ./gradlew assembleRelease --no-daemon --parallel --configure-on-demand
 
-    # 10) Upload Release APK artifact
-    - name: Upload Release APK
+    # 10) Upload the Release APK
+    - name: Upload APK
       uses: actions/upload-artifact@v4
       with:
         name: my-app-release-apk
