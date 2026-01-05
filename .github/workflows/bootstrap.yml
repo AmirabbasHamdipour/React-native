@@ -22,7 +22,8 @@ jobs:
           distribution: temurin
           java-version: 17
 
-      - run: npm install --legacy-peer-deps
+      - name: Install dependencies
+        run: npm install --legacy-peer-deps
 
       - name: Bundle JS manually
         run: |
@@ -38,7 +39,7 @@ jobs:
         run: |
           cd android
           chmod +x gradlew
-          ./gradlew assembleRelease -x bundleReleaseJsAndAssets
+          ./gradlew assembleRelease
 
       - uses: actions/upload-artifact@v4
         with:
