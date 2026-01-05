@@ -11,20 +11,20 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-    # 1️⃣ Checkout پروژه
+    # Checkout source
     - name: Checkout repository
-      uses: actions/checkout@v3
+      uses: actions/checkout@v4
 
-    # 2️⃣ نصب JDK
+    # Set up Java
     - name: Set up JDK 17
       uses: actions/setup-java@v3
       with:
         distribution: 'temurin'
         java-version: '17'
 
-    # 3️⃣ Cache کردن Gradle
+    # Cache gradle
     - name: Cache Gradle
-      uses: actions/cache@v3
+      uses: actions/cache@v4
       with:
         path: |
           ~/.gradle/caches
@@ -33,13 +33,14 @@ jobs:
         restore-keys: |
           gradle-
 
-    # 4️⃣ نصب Gradle Wrapper و build
-    - name: Build APK
+    # Build
+    - name: Build Debug APK
       run: ./gradlew assembleDebug --no-daemon
 
-    # 5️⃣ آپلود APK به عنوان artifact
+    # Upload artifact (v4)
     - name: Upload APK
-      uses: actions/upload-artifact@v3
+      uses: actions/upload-artifact@v4
       with:
         name: my-app-apk
         path: app/build/outputs/apk/debug/app-debug.apk
+        # retention-days: 7 # (اختیاری – مدت نگهداری artifact)
