@@ -1,4 +1,4 @@
-name: React Native Android Build
+name: React Native Android Release Build
 
 on:
   push:
@@ -11,11 +11,11 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-    # 1) Checkout code
+    # 1) Checkout repo
     - name: Checkout repository
       uses: actions/checkout@v4
 
-    # 2) Install Node.js
+    # 2) Setup Node.js
     - name: Setup Node.js
       uses: actions/setup-node@v4
       with:
@@ -25,18 +25,31 @@ jobs:
     - name: Install npm dependencies
       run: npm install
 
-    # 4) Make gradlew executable
+    # 4) Create assets folder for bundle (if not exists)
+    - name: Create Android assets folder
+      run: mkdir -p android/app/src/main/assets
+
+    # 5) Bundle JS for Release
+    - name: Bundle JS
+      run: npx react-native bundle \
+        --platform android \
+        --dev false \
+        --entry-file index.js \
+        --bundle-output android/app/src/main/assets/index.android.bundle \
+        --assets-dest android/app/src/main/res/
+
+    # 6) Make gradlew executable
     - name: Make gradlew executable
       run: chmod +x android/gradlew
 
-    # 5) Set up JDK 17
+    # 7) Setup JDK 17
     - name: Set up JDK 17
       uses: actions/setup-java@v3
       with:
         distribution: 'temurin'
         java-version: '17'
 
-    # 6) Cache Gradle
+    # 8) Cache Gradle
     - name: Cache Gradle
       uses: actions/cache@v4
       with:
@@ -47,14 +60,14 @@ jobs:
         restore-keys: |
           gradle-
 
-    # 7) Build APK
-    - name: Build Debug APK
+    # 9) Build Release APK
+    - name: Build Release APK
       working-directory: android
-      run: ./gradlew assembleDebug --no-daemon --parallel --configure-on-demand
+      run: ./gradlew assembleRelease --no-daemon --parallel --configure-on-demand
 
-    # 8) Upload APK artifact
-    - name: Upload APK
+    # 10) Upload Release APK artifact
+    - name: Upload Release APK
       uses: actions/upload-artifact@v4
       with:
-        name: my-app-apk
-        path: android/app/build/outputs/apk/debug/app-debug.apk
+        name: my-app-release-apk
+        path: android/app/build/outputs/apk/release/app-release.apk
