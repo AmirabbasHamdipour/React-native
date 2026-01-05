@@ -6,8 +6,6 @@ on:
 jobs:
   build:
     runs-on: ubuntu-latest
-    permissions:
-      contents: write
 
     env:
       NODE_OPTIONS: --max_old_space_size=4096
@@ -17,7 +15,7 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          node-version: 18.19.0
+          node-version: 20.11.1
 
       - uses: actions/setup-java@v4
         with:
