@@ -23,7 +23,7 @@ jobs:
 
     # 3) Install dependencies
     - name: Install JS deps
-      run: npm install
+      run: npm install --legacy-peer-deps
 
     # 4) Make sure Android assets folder exists
     - name: Make assets dir
