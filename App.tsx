@@ -35,7 +35,6 @@ import axios from 'axios';
 import { launchImageLibrary } from 'react-native-image-picker';
 import ImageResizer from 'react-native-image-resizer';
 import Video from 'react-native-video';
-import Thumbnail from 'react-native-thumbnail';
 import Progress from 'react-native-progress';
 import Icon from 'react-native-vector-icons/MaterialCommunityIcons';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
@@ -579,7 +578,7 @@ const CreatePostScreen = ({ navigation }) => {
   const auth = useContext(AuthContext);
 
   const pickMedia = () => {
-    launchImageLibrary({ mediaType: 'mixed', includeBase64: false }, async (response) => {
+    launchImageLibrary({ mediaType: 'mixed', includeBase64: false }, (response) => {
       if (response.didCancel) return;
       if (response.error) {
         Alert.alert('Error', response.error);
@@ -593,14 +592,6 @@ const CreatePostScreen = ({ navigation }) => {
           setEditing(true);
         } else if (asset.type?.startsWith('video')) {
           setMediaType('video');
-          try {
-            const thumbnails = await Thumbnail.get(asset.uri);
-            if (thumbnails && thumbnails.length > 0) {
-              asset.thumbnail = thumbnails[0].path;
-            }
-          } catch (err) {
-            console.log('Thumbnail generation failed', err);
-          }
           setEditing(false);
         } else {
           setMediaType('file');
@@ -668,15 +659,9 @@ const CreatePostScreen = ({ navigation }) => {
             mediaType === 'image' ? (
               <Image source={{ uri: media.uri }} style={{ width: '100%', height: 200, borderRadius: 10 }} />
             ) : mediaType === 'video' ? (
-              <View>
-                {media.thumbnail ? (
-                  <Image source={{ uri: media.thumbnail }} style={{ width: '100%', height: 200, borderRadius: 10 }} />
-                ) : (
-                  <View style={{ width: '100%', height: 200, backgroundColor: '#000', justifyContent: 'center', alignItems: 'center' }}>
-                    <Icon name="video" size={50} color="#fff" />
-                  </View>
-                )}
-                <Icon name="play-circle" size={50} color="white" style={{ position: 'absolute', top: '50%', left: '50%', marginLeft: -25, marginTop: -25 }} />
+              <View style={{ width: '100%', height: 200, backgroundColor: '#000', justifyContent: 'center', alignItems: 'center', borderRadius: 10 }}>
+                <Icon name="video" size={50} color="#fff" />
+                <Icon name="play-circle" size={50} color="white" style={{ position: 'absolute' }} />
               </View>
             ) : (
               <View style={{ width: '100%', height: 200, backgroundColor: '#ccc', justifyContent: 'center', alignItems: 'center', borderRadius: 10 }}>
