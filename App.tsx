@@ -1,4 +1,4 @@
-import React, { useState, useEffect, createContext, useContext, useRef, useCallback } from 'react';
+import React, { useState, useEffect, createContext, useContext, useRef } from 'react';
 import {
   SafeAreaView,
   ScrollView,
@@ -10,23 +10,32 @@ import {
   FlatList,
   Alert,
   ActivityIndicator,
-  Modal,
-  Dimensions,
-  Platform,
   KeyboardAvoidingView,
+  Platform,
   RefreshControl,
 } from 'react-native';
 import { NavigationContainer } from '@react-navigation/native';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
-import { Provider as PaperProvider, DefaultTheme, DarkTheme, Button, Card, Title, Paragraph, Appbar, Menu, Divider, Switch, Avatar, IconButton, Chip, ProgressBar } from 'react-native-paper';
+import {
+  Provider as PaperProvider,
+  DefaultTheme,
+  DarkTheme,
+  Button,
+  Card,
+  Paragraph,
+  Divider,
+  Switch,
+  Avatar,
+  IconButton,
+  Chip,
+} from 'react-native-paper';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import axios from 'axios';
-import * as ImagePicker from 'expo-image-picker';
-import * as ImageManipulator from 'expo-image-manipulator';
-import * as VideoThumbnails from 'expo-video-thumbnails';
-import { Video } from 'expo-av';
-import Slider from '@react-native-community/slider';
+import { launchImageLibrary } from 'react-native-image-picker';
+import ImageResizer from 'react-native-image-resizer';
+import Video from 'react-native-video';
+import Thumbnail from 'react-native-thumbnail';
 import Progress from 'react-native-progress';
 import Icon from 'react-native-vector-icons/MaterialCommunityIcons';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
@@ -79,18 +88,6 @@ interface Comment {
   liked_by_user: boolean;
 }
 
-interface DirectMessage {
-  id: number;
-  sender_id: number;
-  receiver_id: number;
-  content: string | null;
-  media_type: string | null;
-  media_path: string | null;
-  created_at: string;
-  sender_username: string;
-  sender_profile_image: string | null;
-}
-
 interface GroupMessage {
   id: number;
   sender_id: number;
@@ -127,7 +124,6 @@ const api = axios.create({
   baseURL: API_BASE_URL,
 });
 
-// Add auth interceptor to include user_id in params (simplified)
 api.interceptors.request.use(async (config) => {
   const userId = await AsyncStorage.getItem('userId');
   if (userId) {
@@ -179,12 +175,13 @@ const PostCard = ({ post, onPress, onLike, onBookmark }) => {
         <Card.Title
           title={post.username}
           subtitle={new Date(post.created_at).toLocaleString()}
-          left={(props) => (
-            <Avatar.Image
-              {...props}
-              source={post.profile_image ? { uri: `${STATIC_BASE_URL}/${post.profile_image}` } : require('./assets/default-avatar.png')}
-            />
-          )}
+          left={(props) =>
+            post.profile_image ? (
+              <Avatar.Image {...props} source={{ uri: `${STATIC_BASE_URL}/${post.profile_image}` }} />
+            ) : (
+              <Avatar.Icon {...props} icon="account" />
+            )
+          }
           right={(props) => post.is_blue && <Icon {...props} name="check-decagram" size={20} color="#1DA1F2" />}
         />
         {post.media_path && (
@@ -217,10 +214,11 @@ const CommentItem = ({ comment, onLike, userId, level = 0 }) => {
   return (
     <View style={{ marginLeft: level * 20, marginVertical: 5, paddingHorizontal: 10 }}>
       <View style={{ flexDirection: 'row' }}>
-        <Avatar.Image
-          size={30}
-          source={comment.profile_image ? { uri: `${STATIC_BASE_URL}/${comment.profile_image}` } : require('./assets/default-avatar.png')}
-        />
+        {comment.profile_image ? (
+          <Avatar.Image size={30} source={{ uri: `${STATIC_BASE_URL}/${comment.profile_image}` }} />
+        ) : (
+          <Avatar.Icon size={30} icon="account" />
+        )}
         <View style={{ flex: 1, marginLeft: 10 }}>
           <View style={{ flexDirection: 'row', alignItems: 'center' }}>
             <Text style={{ fontWeight: 'bold' }}>{comment.username}</Text>
@@ -296,15 +294,17 @@ const RegisterScreen = ({ navigation }) => {
   const [loading, setLoading] = useState(false);
   const auth = useContext(AuthContext);
 
-  const pickImage = async () => {
-    const result = await ImagePicker.launchImageLibraryAsync({
-      mediaTypes: ImagePicker.MediaTypeOptions.Images,
-      allowsEditing: true,
-      quality: 1,
+  const pickImage = () => {
+    launchImageLibrary({ mediaType: 'photo', includeBase64: false }, (response) => {
+      if (response.didCancel) return;
+      if (response.error) {
+        Alert.alert('Error', response.error);
+        return;
+      }
+      if (response.assets && response.assets.length > 0) {
+        setProfileImage(response.assets[0]);
+      }
     });
-    if (!result.canceled) {
-      setProfileImage(result.assets[0]);
-    }
   };
 
   const handleRegister = async () => {
@@ -503,7 +503,7 @@ const PostDetailScreen = ({ route, navigation }) => {
   const handleAddComment = async () => {
     if (!commentText.trim()) return;
     try {
-      const res = await api.post('/comment', {
+      await api.post('/comment', {
         post_id: postId,
         user_id: auth.userId,
         content: commentText,
@@ -511,7 +511,7 @@ const PostDetailScreen = ({ route, navigation }) => {
       });
       setCommentText('');
       setReplyTo(null);
-      fetchPost(); // refresh
+      fetchPost();
     } catch (err) {
       Alert.alert('Error', 'Failed to add comment');
     }
@@ -520,33 +520,11 @@ const PostDetailScreen = ({ route, navigation }) => {
   const handleLikeComment = async (commentId: number) => {
     try {
       await api.post(`/comment/${commentId}/like`, { user_id: auth.userId });
-      fetchPost(); // refresh to update likes
+      fetchPost();
     } catch (err) {
       Alert.alert('Error', 'Failed to like comment');
     }
   };
-
-  const organizeComments = (comments: Comment[]): Comment[] => {
-    const map = new Map<number, Comment[]>();
-    const roots: Comment[] = [];
-    comments.forEach(c => {
-      if (c.parent_id) {
-        if (!map.has(c.parent_id)) map.set(c.parent_id, []);
-        map.get(c.parent_id).push(c);
-      } else {
-        roots.push(c);
-      }
-    });
-    const addReplies = (comment: Comment): Comment => {
-      const replies = map.get(comment.id) || [];
-      return { ...comment, replies: replies.map(addReplies) };
-    };
-    return roots.map(addReplies);
-  };
-
-  const renderComment = ({ item }) => (
-    <CommentItem comment={item} onLike={handleLikeComment} userId={auth.userId} />
-  );
 
   if (loading) return <LoadingSpinner />;
 
@@ -600,43 +578,54 @@ const CreatePostScreen = ({ navigation }) => {
   const [editing, setEditing] = useState(false);
   const auth = useContext(AuthContext);
 
-  const pickMedia = async () => {
-    const result = await ImagePicker.launchImageLibraryAsync({
-      mediaTypes: ImagePicker.MediaTypeOptions.All,
-      allowsEditing: false,
-      quality: 1,
-    });
-    if (!result.canceled) {
-      const asset = result.assets[0];
-      setMedia(asset);
-      if (asset.type === 'image') {
-        setMediaType('image');
-        setEditing(true); // go to edit screen
-      } else if (asset.type === 'video') {
-        setMediaType('video');
-        // For video, we could allow trimming here, but for simplicity we skip
-        setEditing(false);
-      } else {
-        setMediaType('file');
-        setEditing(false);
+  const pickMedia = () => {
+    launchImageLibrary({ mediaType: 'mixed', includeBase64: false }, async (response) => {
+      if (response.didCancel) return;
+      if (response.error) {
+        Alert.alert('Error', response.error);
+        return;
       }
-    }
+      if (response.assets && response.assets.length > 0) {
+        const asset = response.assets[0];
+        setMedia(asset);
+        if (asset.type?.startsWith('image')) {
+          setMediaType('image');
+          setEditing(true);
+        } else if (asset.type?.startsWith('video')) {
+          setMediaType('video');
+          try {
+            const thumbnails = await Thumbnail.get(asset.uri);
+            if (thumbnails && thumbnails.length > 0) {
+              asset.thumbnail = thumbnails[0].path;
+            }
+          } catch (err) {
+            console.log('Thumbnail generation failed', err);
+          }
+          setEditing(false);
+        } else {
+          setMediaType('file');
+          setEditing(false);
+        }
+      }
+    });
   };
 
   const editImage = async () => {
-    // Open image editor (crop, rotate, flip)
-    const actions = [];
-    // We'll just show a simple modal with options
-    setEditing(true);
-    // In a real app, you'd use a library like react-native-image-editor
-    // For now, we'll simulate with a simple crop
-    const manipResult = await ImageManipulator.manipulateAsync(
-      media.uri,
-      [{ resize: { width: 800 } }],
-      { compress: 1, format: ImageManipulator.SaveFormat.JPEG }
-    );
-    setMedia(manipResult);
-    setEditing(false);
+    if (!media) return;
+    try {
+      const resized = await ImageResizer.createResizedImage(
+        media.uri,
+        800,
+        800,
+        'JPEG',
+        80
+      );
+      setMedia({ ...media, uri: resized.uri });
+      setEditing(false);
+      Alert.alert('Success', 'Image resized successfully');
+    } catch (err) {
+      Alert.alert('Error', 'Failed to edit image');
+    }
   };
 
   const handleUpload = async () => {
@@ -679,9 +668,18 @@ const CreatePostScreen = ({ navigation }) => {
             mediaType === 'image' ? (
               <Image source={{ uri: media.uri }} style={{ width: '100%', height: 200, borderRadius: 10 }} />
             ) : mediaType === 'video' ? (
-              <Video source={{ uri: media.uri }} style={{ width: '100%', height: 200 }} useNativeControls />
+              <View>
+                {media.thumbnail ? (
+                  <Image source={{ uri: media.thumbnail }} style={{ width: '100%', height: 200, borderRadius: 10 }} />
+                ) : (
+                  <View style={{ width: '100%', height: 200, backgroundColor: '#000', justifyContent: 'center', alignItems: 'center' }}>
+                    <Icon name="video" size={50} color="#fff" />
+                  </View>
+                )}
+                <Icon name="play-circle" size={50} color="white" style={{ position: 'absolute', top: '50%', left: '50%', marginLeft: -25, marginTop: -25 }} />
+              </View>
             ) : (
-              <View style={{ width: '100%', height: 200, backgroundColor: '#ccc', justifyContent: 'center', alignItems: 'center' }}>
+              <View style={{ width: '100%', height: 200, backgroundColor: '#ccc', justifyContent: 'center', alignItems: 'center', borderRadius: 10 }}>
                 <Icon name="file" size={50} />
               </View>
             )
@@ -693,7 +691,7 @@ const CreatePostScreen = ({ navigation }) => {
           )}
         </TouchableOpacity>
         {editing && mediaType === 'image' && (
-          <Button mode="outlined" onPress={editImage} style={{ marginBottom: 10 }}>Edit Image</Button>
+          <Button mode="outlined" onPress={editImage} style={{ marginBottom: 10 }}>Edit Image (Resize)</Button>
         )}
         <TextInput
           placeholder="Caption"
@@ -773,10 +771,11 @@ const ProfileScreen = ({ navigation, route }) => {
     <SafeAreaView style={{ flex: 1 }}>
       <ScrollView refreshControl={<RefreshControl refreshing={refreshing} onRefresh={handleRefresh} />}>
         <View style={{ alignItems: 'center', padding: 20 }}>
-          <Avatar.Image
-            size={100}
-            source={profile.profile_image ? { uri: `${STATIC_BASE_URL}/${profile.profile_image}` } : require('./assets/default-avatar.png')}
-          />
+          {profile.profile_image ? (
+            <Avatar.Image size={100} source={{ uri: `${STATIC_BASE_URL}/${profile.profile_image}` }} />
+          ) : (
+            <Avatar.Icon size={100} icon="account" />
+          )}
           <View style={{ flexDirection: 'row', alignItems: 'center', marginTop: 10 }}>
             <Text style={{ fontSize: 24, fontWeight: 'bold' }}>{profile.username}</Text>
             {profile.is_blue && <Icon name="check-decagram" size={20} color="#1DA1F2" style={{ marginLeft: 5 }} />}
@@ -832,15 +831,17 @@ const EditProfileScreen = ({ navigation }) => {
   const [profileImage, setProfileImage] = useState(null);
   const [loading, setLoading] = useState(false);
 
-  const pickImage = async () => {
-    const result = await ImagePicker.launchImageLibraryAsync({
-      mediaTypes: ImagePicker.MediaTypeOptions.Images,
-      allowsEditing: true,
-      quality: 1,
+  const pickImage = () => {
+    launchImageLibrary({ mediaType: 'photo' }, (response) => {
+      if (response.didCancel) return;
+      if (response.error) {
+        Alert.alert('Error', response.error);
+        return;
+      }
+      if (response.assets && response.assets.length > 0) {
+        setProfileImage(response.assets[0]);
+      }
     });
-    if (!result.canceled) {
-      setProfileImage(result.assets[0]);
-    }
   };
 
   const handleSave = async () => {
@@ -928,28 +929,6 @@ const BookmarksScreen = ({ navigation }) => {
 
 // Direct Messages List Screen
 const DirectMessagesListScreen = ({ navigation }) => {
-  const [conversations, setConversations] = useState([]);
-  const [loading, setLoading] = useState(true);
-  const auth = useContext(AuthContext);
-
-  useEffect(() => {
-    fetchConversations();
-  }, []);
-
-  const fetchConversations = async () => {
-    // We need to get distinct users that the current user has exchanged messages with
-    // Since the API doesn't provide this, we'll fetch all messages and group by other user
-    try {
-      const res = await api.get('/direct/messages', { params: { other_id: 0 } }); // hack? Not good
-      // Better: we need a dedicated endpoint. For simplicity, we'll just show a list of users to message.
-      // Let's create a simple list of users from the server? Not available.
-      // We'll just provide a button to start a new message.
-      setLoading(false);
-    } catch (err) {
-      setLoading(false);
-    }
-  };
-
   return (
     <SafeAreaView style={{ flex: 1 }}>
       <View style={{ padding: 10 }}>
@@ -966,32 +945,58 @@ const DirectMessagesListScreen = ({ navigation }) => {
 
 // New Direct Message Screen
 const NewDirectMessageScreen = ({ navigation }) => {
-  const [username, setUsername] = useState('');
+  const [receiverId, setReceiverId] = useState('');
   const [content, setContent] = useState('');
   const [media, setMedia] = useState(null);
   const [uploadProgress, setUploadProgress] = useState(0);
   const [uploading, setUploading] = useState(false);
   const auth = useContext(AuthContext);
 
-  const pickMedia = async () => {
-    const result = await ImagePicker.launchImageLibraryAsync({
-      mediaTypes: ImagePicker.MediaTypeOptions.All,
-      allowsEditing: false,
+  const pickMedia = () => {
+    launchImageLibrary({ mediaType: 'mixed' }, (response) => {
+      if (response.didCancel) return;
+      if (response.error) {
+        Alert.alert('Error', response.error);
+        return;
+      }
+      if (response.assets && response.assets.length > 0) {
+        setMedia(response.assets[0]);
+      }
     });
-    if (!result.canceled) {
-      setMedia(result.assets[0]);
-    }
   };
 
   const sendMessage = async () => {
-    // First, find receiver by username
-    try {
-      const userRes = await api.get(`/profile/${username}`); // This endpoint expects user_id, not username. We need a search endpoint.
-      // Not available. For simplicity, we'll assume we have a user id input instead.
-      Alert.alert('Error', 'Username search not implemented. Please use user ID.');
+    if (!receiverId.trim()) {
+      Alert.alert('Error', 'Receiver ID is required');
       return;
+    }
+    const formData = new FormData();
+    formData.append('sender_id', auth.userId.toString());
+    formData.append('receiver_id', receiverId);
+    formData.append('content', content);
+    if (media) {
+      formData.append('media', {
+        uri: media.uri,
+        type: media.type || 'image/jpeg',
+        name: media.fileName || 'media.jpg',
+      } as any);
+    }
+    setUploading(true);
+    try {
+      await api.post('/direct/send', formData, {
+        headers: { 'Content-Type': 'multipart/form-data' },
+        onUploadProgress: (progressEvent) => {
+          const percent = Math.round((progressEvent.loaded * 100) / progressEvent.total);
+          setUploadProgress(percent);
+        },
+      });
+      Alert.alert('Success', 'Message sent');
+      navigation.goBack();
     } catch (err) {
-      Alert.alert('Error', 'User not found');
+      Alert.alert('Error', 'Failed to send message');
+    } finally {
+      setUploading(false);
+      setUploadProgress(0);
     }
   };
 
@@ -999,8 +1004,8 @@ const NewDirectMessageScreen = ({ navigation }) => {
     <SafeAreaView style={{ flex: 1, padding: 20 }}>
       <TextInput
         placeholder="Receiver User ID"
-        value={username}
-        onChangeText={setUsername}
+        value={receiverId}
+        onChangeText={setReceiverId}
         keyboardType="numeric"
         style={{ borderWidth: 1, borderColor: '#ccc', padding: 15, borderRadius: 10, marginBottom: 15 }}
       />
@@ -1046,7 +1051,7 @@ const GroupChatScreen = ({ navigation }) => {
       const res = await api.get('/group/messages', { params: { page: pageNum, per_page: 20 } });
       const newMessages = res.data;
       if (refresh) {
-        setMessages(newMessages.reverse()); // API returns newest first, we want oldest first for chat
+        setMessages(newMessages.reverse());
         setHasMore(newMessages.length === 20);
       } else {
         setMessages(prev => [...newMessages.reverse(), ...prev]);
@@ -1088,7 +1093,7 @@ const GroupChatScreen = ({ navigation }) => {
       });
       setInput('');
       setMedia(null);
-      fetchMessages(1, true); // refresh
+      fetchMessages(1, true);
     } catch (err) {
       Alert.alert('Error', 'Failed to send message');
     } finally {
@@ -1101,22 +1106,32 @@ const GroupChatScreen = ({ navigation }) => {
     const isMe = item.sender_id === auth.userId;
     return (
       <View style={{ flexDirection: isMe ? 'row-reverse' : 'row', marginVertical: 5, paddingHorizontal: 10 }}>
-        <Avatar.Image
-          size={40}
-          source={item.profile_image ? { uri: `${STATIC_BASE_URL}/${item.profile_image}` } : require('./assets/default-avatar.png')}
-        />
+        {item.profile_image ? (
+          <Avatar.Image size={40} source={{ uri: `${STATIC_BASE_URL}/${item.profile_image}` }} />
+        ) : (
+          <Avatar.Icon size={40} icon="account" />
+        )}
         <View style={{ maxWidth: '70%', marginHorizontal: 10 }}>
           <View style={{ flexDirection: 'row', alignItems: 'center' }}>
             <Text style={{ fontWeight: 'bold' }}>{item.username}</Text>
             {item.is_blue && <Icon name="check-decagram" size={16} color="#1DA1F2" style={{ marginLeft: 5 }} />}
           </View>
           {item.media_path && (
-            <MediaThumbnail
-              mediaPath={item.media_path}
-              thumbnailPath={null}
-              mediaType={item.media_type}
-              style={{ width: 200, height: 200, borderRadius: 10, marginVertical: 5 }}
-            />
+            item.media_type === 'video' ? (
+              <Video
+                source={{ uri: `${STATIC_BASE_URL}/${item.media_path}` }}
+                style={{ width: 200, height: 200, borderRadius: 10, marginVertical: 5 }}
+                controls
+                paused
+              />
+            ) : item.media_type === 'image' ? (
+              <Image source={{ uri: `${STATIC_BASE_URL}/${item.media_path}` }} style={{ width: 200, height: 200, borderRadius: 10, marginVertical: 5 }} />
+            ) : (
+              <View style={{ width: 200, height: 50, backgroundColor: '#eee', justifyContent: 'center', alignItems: 'center' }}>
+                <Icon name="file" size={30} />
+                <Text>{item.media_type}</Text>
+              </View>
+            )
           )}
           {item.content && <Text style={{ backgroundColor: isMe ? '#DCF8C6' : '#EEE', padding: 10, borderRadius: 10 }}>{item.content}</Text>}
           <Text style={{ fontSize: 10, color: 'gray', alignSelf: isMe ? 'flex-end' : 'flex-start' }}>{new Date(item.created_at).toLocaleTimeString()}</Text>
@@ -1136,14 +1151,10 @@ const GroupChatScreen = ({ navigation }) => {
         onEndReachedThreshold={0.1}
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => fetchMessages(1, true)} />}
         ListFooterComponent={loading ? <ActivityIndicator /> : null}
-        inverted // to show latest at bottom? Actually we want normal order with newest at bottom. We'll keep data as oldest first and scroll to end.
       />
       <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
         <View style={{ flexDirection: 'row', padding: 10, borderTopWidth: 1, borderTopColor: '#ccc' }}>
-          <IconButton icon="attachment" onPress={async () => {
-            const result = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ImagePicker.MediaTypeOptions.All });
-            if (!result.canceled) setMedia(result.assets[0]);
-          }} />
+          <IconButton icon="attachment" onPress={pickMedia} />
           <TextInput
             style={{ flex: 1, borderWidth: 1, borderColor: '#ccc', borderRadius: 20, paddingHorizontal: 15, paddingVertical: 8 }}
             placeholder="Type a message"
@@ -1183,6 +1194,7 @@ const HomeStack = () => (
   <Stack.Navigator>
     <Stack.Screen name="Feed" component={HomeScreen} options={{ title: 'Home' }} />
     <Stack.Screen name="PostDetail" component={PostDetailScreen} options={{ title: 'Post' }} />
+    <Stack.Screen name="CreatePost" component={CreatePostScreen} options={{ title: 'Create Post' }} />
   </Stack.Navigator>
 );
 
@@ -1218,31 +1230,34 @@ const SettingsStack = () => (
   </Stack.Navigator>
 );
 
-const MainTabs = () => (
-  <Tab.Navigator
-    screenOptions={({ route }) => ({
-      tabBarIcon: ({ focused, color, size }) => {
-        let iconName;
-        if (route.name === 'Home') iconName = 'home';
-        else if (route.name === 'Profile') iconName = 'account';
-        else if (route.name === 'Messages') iconName = 'message';
-        else if (route.name === 'Group') iconName = 'chat';
-        else if (route.name === 'Bookmarks') iconName = 'bookmark';
-        else if (route.name === 'Settings') iconName = 'cog';
-        return <Icon name={iconName} size={size} color={color} />;
-      },
-      tabBarActiveTintColor: '#1DA1F2',
-      tabBarInactiveTintColor: 'gray',
-    })}
-  >
-    <Tab.Screen name="Home" component={HomeStack} options={{ headerShown: false }} />
-    <Tab.Screen name="Profile" component={ProfileStack} options={{ headerShown: false }} />
-    <Tab.Screen name="Messages" component={MessagesStack} options={{ headerShown: false }} />
-    <Tab.Screen name="Group" component={GroupChatStack} options={{ headerShown: false }} />
-    <Tab.Screen name="Bookmarks" component={BookmarksStack} options={{ headerShown: false }} />
-    <Tab.Screen name="Settings" component={SettingsStack} options={{ headerShown: false }} />
-  </Tab.Navigator>
-);
+const MainTabs = () => {
+  return (
+    <Tab.Navigator
+      screenOptions={({ route }) => ({
+        tabBarIcon: ({ focused, color, size }) => {
+          let iconName;
+          if (route.name === 'Home') iconName = 'home';
+          else if (route.name === 'Profile') iconName = 'account';
+          else if (route.name === 'Messages') iconName = 'message';
+          else if (route.name === 'Group') iconName = 'chat';
+          else if (route.name === 'Bookmarks') iconName = 'bookmark';
+          else if (route.name === 'Settings') iconName = 'cog';
+          return <Icon name={iconName} size={size} color={color} />;
+        },
+        tabBarActiveTintColor: '#1DA1F2',
+        tabBarInactiveTintColor: 'gray',
+        headerShown: false,
+      })}
+    >
+      <Tab.Screen name="Home" component={HomeStack} />
+      <Tab.Screen name="Profile" component={ProfileStack} />
+      <Tab.Screen name="Messages" component={MessagesStack} />
+      <Tab.Screen name="Group" component={GroupChatStack} />
+      <Tab.Screen name="Bookmarks" component={BookmarksStack} />
+      <Tab.Screen name="Settings" component={SettingsStack} />
+    </Tab.Navigator>
+  );
+};
 
 const AuthStack = () => (
   <Stack.Navigator screenOptions={{ headerShown: false }}>
@@ -1353,6 +1368,13 @@ export const ThemeProvider = ({ children }) => {
       </PaperProvider>
     </ThemeContext.Provider>
   );
+};
+
+// Helper hook for theme
+const useTheme = () => {
+  const theme = useContext(ThemeContext);
+  const paperTheme = useContext(PaperProvider);
+  return { colors: paperTheme.theme.colors, isDark: theme?.isDark, toggleTheme: theme?.toggleTheme };
 };
 
 // -------------------- Main App --------------------
